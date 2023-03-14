@@ -33,4 +33,5 @@ jobs:
       - name: Terraform security scan
         uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
         with:
+          working_directory: ''
           github_token: ${{ secrets.GITHUB_TOKEN }}
