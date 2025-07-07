@@ -23,7 +23,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
       - name: Terraform fmt
         id: fmt
-        run: terraform fmt -check
+        run: find . -path "./.terraform" -prune -o -name "*.tf" -exec dirname {} \; | sort -u | xargs -I {} sh -c 'cd "{}" && terraform fmt -check'
         working-directory: ${{ inputs.working_directory }}
       - uses: actions/github-script@v7
         if: ${{ failure() && github.event_name == 'pull_request' }}
