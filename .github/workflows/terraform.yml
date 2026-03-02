@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: "Checkout"
         uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform fmt
         id: fmt
         run: find . -path "./.terraform" -prune -o -name "*.tf" -exec dirname {} \; | sort -u | xargs -I {} sh -c 'cd "{}" && terraform fmt -check'
