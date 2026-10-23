@@ -1,0 +1,40 @@
+name: "zizmor"
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: "Write org policy"
+        run: |
+          cat > "$RUNNER_TEMP/zizmor.yml" <<'EOF'
+          rules:
+            unpinned-uses:
+              config:
+                policies:
+                  "brightnetwork/*": ref-pin
+                  "*": hash-pin
+            dependabot-cooldown:
+              config:
+                days: 7
+          EOF
+      - name: "Run zizmor"
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          advanced-security: false
+          annotations: true
+          config: ${{ runner.temp }}/zizmor.yml
