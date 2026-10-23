@@ -1,0 +1,176 @@
+name: "zizmor"
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      ZIZMOR_POLICY: |
+        rules:
+          unpinned-uses:
+            config:
+              policies:
+                "brightnetwork/*": ref-pin
+                "*": hash-pin
+          dependabot-cooldown:
+            config:
+              days: 7
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Write org policy"
+        run: echo "$ZIZMOR_POLICY" > "$RUNNER_TEMP/zizmor.yml"
+
+      - name: "List Depot CI files"
+        id: depot
+        run: echo "files=$(find . -path './.depot/*.y*ml' -exec echo {} +)" >> "$GITHUB_OUTPUT"
+
+      - name: "Run zizmor"
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          inputs: . ${{ steps.depot.outputs.files }}
+          config: ${{ runner.temp }}/zizmor.yml
+          advanced-security: false
+          annotations: true
+          fail-on-no-inputs: false
+
+      - name: "Check Dependabot covers actions"
+        if: ${{ !cancelled() }}
+        run: |
+          workflows=$(find . -path './.github/workflows/*.y*ml')
+          depot=$(find . -path './.depot/*.y*ml')
+
+          if [ -n "$workflows$depot" ] && ! grep -qs 'github-actions' .github/dependabot.y*ml; then
+            echo "::error::.github/dependabot.yml needs a github-actions entry"
+            exit 1
+          fi
+
+          if [ -n "$depot" ] && ! grep -qs '/.depot/workflows' .github/dependabot.y*ml; then
+            echo "::error::github-actions Dependabot entry needs /.depot/workflows"
+            exit 1
+          fi
+
+  images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Check images pinned by digest and covered by Dependabot"
+        shell: bash
+        run: |
+          set -uo pipefail
+          fail=0
+          pinned='@sha256:[0-9a-f]{64}$'
+
+          error() {
+            echo "::error file=$1,line=$2::$3"
+            fail=1
+          }
+
+          images() {
+            local image
+            yq "$1 | select(tag == \"!!str\")" "$2" | sed '/^$/d' | sort -u | while read -r image; do
+              printf '%s\t%s\n' "$(grep -nF -- "$image" "$2" | grep -m1 -E '(image|container):' | cut -d: -f1)" "$image"
+            done
+          }
+
+          covered() {
+            local ecosystem=$1 dir=$2 pattern
+            while read -r pattern; do
+              pattern=${pattern#.}
+              [ "$pattern" = "/" ] || pattern=${pattern%/}
+              pattern=${pattern//\*\*/@}
+              pattern=${pattern//\*/[^/]*}
+              [[ "$dir" =~ ^${pattern//@/.*}$ ]] && return 0
+            done < <(yq ".updates[] | select(.[\"package-ecosystem\"] == \"$ecosystem\") | (.directory, .directories[]) | select(. != null)" .github/dependabot.y*ml 2>/dev/null)
+            return 1
+          }
+
+          require_dependabot() {
+            local dir
+            dir=$(dirname "${2#.}")
+            covered "$1" "$dir" || error "$2" 1 "No Dependabot $1 entry covers $dir"
+          }
+
+          dockerfiles=$(find . \( -name .git -o -name node_modules \) -prune -o -type f \( -name Dockerfile -o -name 'Dockerfile.*' -o -name '*.Dockerfile' -o -name Containerfile \) -print)
+          composefiles=$(find . \( -name .git -o -name node_modules \) -prune -o -type f -name '*compose*.y*ml' -print)
+          workflows=$(find . -path './.github/workflows/*.y*ml' -o -path './.depot/workflows/*.y*ml')
+
+          for f in $dockerfiles; do
+            require_dependabot docker "$f"
+            while IFS=$'\t' read -r line image; do
+              error "$f" "$line" "Image not pinned by digest: $image"
+            done < <(awk -v pinned="$pinned" '
+              toupper($1) == "FROM" {
+                i = 2
+                while ($i ~ /^--/) i++
+                image = $i
+                if (image != "scratch" && !(tolower(image) in stages) && image !~ pinned)
+                  printf "%d\t%s\n", FNR, image
+                if (tolower($(i + 1)) == "as") stages[tolower($(i + 2))] = 1
+              }' "$f")
+          done
+
+          built=" "
+          for f in $composefiles; do
+            built+="$(yq '.services[] | select(has("build")) | .image | select(tag == "!!str")' "$f" | tr '\n' ' ')"
+          done
+          for f in $composefiles; do
+            external=0
+            while IFS=$'\t' read -r line image; do
+              [[ "$built" == *" $(sed -E 's/^\$\{[A-Za-z_][A-Za-z0-9_]*:?-(.*)\}$/\1/' <<<"$image") "* ]] && continue
+              external=1
+              [[ "$image" =~ $pinned ]] || error "$f" "$line" "Image not pinned by digest: $image"
+            done < <(images '.services[] | select(has("build") | not) | .image' "$f")
+            [ $external = 0 ] || require_dependabot docker-compose "$f"
+          done
+
+          for f in $workflows; do
+            while IFS=$'\t' read -r line image; do
+              [[ "$image" == *'{{'* || "$image" =~ $pinned ]] || error "$f" "$line" "Image not pinned by digest: $image"
+            done < <(images '.jobs[] | (.container, .container.image, .services[].image)' "$f")
+          done
+
+          exit $fail
+
+  betterleaks:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Compute fetch depth"
+        id: depth
+        env:
+          COMMITS: ${{ github.event.pull_request.commits }}
+        run: echo "value=$((COMMITS + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: "Checkout PR commits"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: ${{ steps.depth.outputs.value }}
+          persist-credentials: false
+
+      - name: "Scan PR commits for secrets"
+        uses: brightnetwork/workflows/.github/actions/betterleaks@main
+        with:
+          commits: ${{ github.event.pull_request.commits }}
