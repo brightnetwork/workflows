@@ -36,7 +36,7 @@ jobs:
 
       - name: "List Depot CI files"
         id: depot
-        run: echo "files=$(find .depot -name '*.y*ml' -exec echo {} + 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: echo "files=$(find . -path './.depot/*.y*ml' -exec echo {} +)" >> "$GITHUB_OUTPUT"
 
       - name: "Run zizmor"
         uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
@@ -50,16 +50,15 @@ jobs:
       - name: "Check Dependabot covers actions"
         if: ${{ !cancelled() }}
         run: |
-          workflows=$(find .github/workflows -name '*.y*ml' 2>/dev/null)
-          depot=$(find .depot -name '*.y*ml' 2>/dev/null)
-          dependabot=$(cat .github/dependabot.y*ml 2>/dev/null)
+          workflows=$(find . -path './.github/workflows/*.y*ml')
+          depot=$(find . -path './.depot/*.y*ml')
 
-          if [ -n "$workflows$depot" ] && ! grep -q 'github-actions' <<< "$dependabot"; then
+          if [ -n "$workflows$depot" ] && ! grep -qs 'github-actions' .github/dependabot.y*ml; then
             echo "::error::.github/dependabot.yml needs a github-actions entry"
             exit 1
           fi
 
-          if [ -n "$depot" ] && ! grep -q '/.depot/workflows' <<< "$dependabot"; then
+          if [ -n "$depot" ] && ! grep -qs '/.depot/workflows' .github/dependabot.y*ml; then
             echo "::error::github-actions Dependabot entry needs /.depot/workflows"
             exit 1
           fi
