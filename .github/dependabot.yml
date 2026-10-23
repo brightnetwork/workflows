@@ -3,4 +3,12 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "docker"
+    directory: "/.github/actions/betterleaks"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
