@@ -14,54 +14,52 @@ jobs:
     permissions:
       contents: read
       actions: read
+    env:
+      ZIZMOR_POLICY: |
+        rules:
+          unpinned-uses:
+            config:
+              policies:
+                "brightnetwork/*": ref-pin
+                "*": hash-pin
+          dependabot-cooldown:
+            config:
+              days: 7
     steps:
       - name: "Checkout"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
       - name: "Write org policy"
-        run: |
-          cat > "$RUNNER_TEMP/zizmor.yml" <<'EOF'
-          rules:
-            unpinned-uses:
-              config:
-                policies:
-                  "brightnetwork/*": ref-pin
-                  "*": hash-pin
-            dependabot-cooldown:
-              config:
-                days: 7
-          EOF
-      - name: "Collect Depot CI files"
+        run: echo "$ZIZMOR_POLICY" > "$RUNNER_TEMP/zizmor.yml"
+
+      - name: "List Depot CI files"
         id: depot
-        run: |
-          files=$(find .depot -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | tr '\n' ' ')
-          echo "files=$files" >> "$GITHUB_OUTPUT"
+        run: echo "files=$(find .depot -name '*.y*ml' -exec echo {} + 2>/dev/null)" >> "$GITHUB_OUTPUT"
+
       - name: "Run zizmor"
         uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
         with:
           inputs: . ${{ steps.depot.outputs.files }}
+          config: ${{ runner.temp }}/zizmor.yml
           advanced-security: false
           annotations: true
-          config: ${{ runner.temp }}/zizmor.yml
           fail-on-no-inputs: false
-      - name: "Require Dependabot for actions"
+
+      - name: "Check Dependabot covers actions"
         if: ${{ !cancelled() }}
-        env:
-          DEPOT_FILES: ${{ steps.depot.outputs.files }}
         run: |
-          config=/dev/null
-          for f in .github/dependabot.yml .github/dependabot.yaml; do
-            if [ -f "$f" ]; then config=$f; fi
-          done
-          failed=0
-          if [ -n "$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null)" ] \
-            && ! grep -qE 'package-ecosystem:\s*"?github-actions' "$config"; then
-            echo "::error file=.github/dependabot.yml::missing github-actions ecosystem"
-            failed=1
+          workflows=$(find .github/workflows -name '*.y*ml' 2>/dev/null)
+          depot=$(find .depot -name '*.y*ml' 2>/dev/null)
+          dependabot=$(cat .github/dependabot.y*ml 2>/dev/null)
+
+          if [ -n "$workflows$depot" ] && ! grep -q 'github-actions' <<< "$dependabot"; then
+            echo "::error::.github/dependabot.yml needs a github-actions entry"
+            exit 1
           fi
-          if [ -n "$DEPOT_FILES" ] && ! grep -q '/.depot/workflows' "$config"; then
-            echo "::error file=.github/dependabot.yml::github-actions ecosystem must include /.depot/workflows"
-            failed=1
+
+          if [ -n "$depot" ] && ! grep -q '/.depot/workflows' <<< "$dependabot"; then
+            echo "::error::github-actions Dependabot entry needs /.depot/workflows"
+            exit 1
           fi
-          exit $failed
