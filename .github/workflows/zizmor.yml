@@ -44,3 +44,24 @@ jobs:
           advanced-security: false
           annotations: true
           config: ${{ runner.temp }}/zizmor.yml
+          fail-on-no-inputs: false
+      - name: "Require Dependabot for actions"
+        if: ${{ !cancelled() }}
+        env:
+          DEPOT_FILES: ${{ steps.depot.outputs.files }}
+        run: |
+          config=/dev/null
+          for f in .github/dependabot.yml .github/dependabot.yaml; do
+            if [ -f "$f" ]; then config=$f; fi
+          done
+          failed=0
+          if [ -n "$(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null)" ] \
+            && ! grep -qE 'package-ecosystem:\s*"?github-actions' "$config"; then
+            echo "::error file=.github/dependabot.yml::missing github-actions ecosystem"
+            failed=1
+          fi
+          if [ -n "$DEPOT_FILES" ] && ! grep -q '/.depot/workflows' "$config"; then
+            echo "::error file=.github/dependabot.yml::github-actions ecosystem must include /.depot/workflows"
+            failed=1
+          fi
+          exit $failed
