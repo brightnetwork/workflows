@@ -171,6 +171,6 @@ jobs:
           persist-credentials: false
 
       - name: "Scan PR commits for secrets"
-        uses: brightnetwork/workflows/.github/actions/betterleaks@sec/zizmor
+        uses: brightnetwork/workflows/.github/actions/betterleaks@main
         with:
           commits: ${{ github.event.pull_request.commits }}
