@@ -68,7 +68,7 @@ jobs:
         run: |
           keys='aws-access-key-id|aws-secret-access-key|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|credentials_json|GOOGLE_CREDENTIALS|GOOGLE_APPLICATION_CREDENTIALS_JSON|client-secret|AZURE_CLIENT_SECRET|ARM_CLIENT_SECRET|creds'
           matches=$(find . \( -path './.github/workflows/*.y*ml' -o -path './.github/actions/*.y*ml' -o -path './.depot/*.y*ml' \) \
-            -exec grep -HnE "($keys):[[:space:]]*[\"']?\\$\{\{[[:space:]]*secrets\." {} +)
+            -exec grep -HnE "($keys):[[:space:]]*[\"']?\\$\{\{[[:space:]]*secrets\." {} + || true)
           [ -n "$matches" ] || exit 0
 
           while IFS=: read -r file line _; do
