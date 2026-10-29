@@ -1,0 +1,19 @@
+name: "betterleaks"
+description: "Scan the last commits of the checked out repository for secrets"
+inputs:
+  commits:
+    description: "Number of commits to scan"
+    required: true
+runs:
+  using: docker
+  image: Dockerfile
+  env:
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: safe.directory
+    GIT_CONFIG_VALUE_0: "*"
+  args:
+    - git
+    - --no-banner
+    - --redact
+    - --log-opts=-n ${{ inputs.commits }}
+    - .
