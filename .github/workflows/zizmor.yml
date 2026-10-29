@@ -25,6 +25,10 @@ jobs:
           dependabot-cooldown:
             config:
               days: 7
+          secrets-outside-env:
+            config:
+              allow:
+                - CODECOV_TOKEN
     steps:
       - name: "Checkout"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,6 +78,25 @@ jobs:
           while IFS=: read -r file line _; do
             echo "::error file=$file,line=$line::Static cloud credential from secrets, use OIDC (github-actions-policy.md rule 6)"
           done <<<"$matches"
+          exit 1
+
+      - name: "Check secrets only in environments"
+        if: ${{ !cancelled() }}
+        run: |
+          [ -d .github/workflows ] || exit 0
+          zizmor=$(find "$RUNNER_TEMP/zizmor-wheel/unpacked" -path '*/scripts/zizmor' -type f)
+          [ -n "$zizmor" ] || { echo "::error::zizmor binary from zizmor-action not found"; exit 1; }
+
+          rc=0
+          "$zizmor" --quiet --persona=auditor --no-online-audits --format=json --config="$RUNNER_TEMP/zizmor.yml" .github/workflows > "$RUNNER_TEMP/auditor.json" || rc=$?
+          [ "$rc" -eq 0 ] || [ "$rc" -ge 10 ] || exit "$rc"
+
+          errors=$(jq -r '.[] | select(.ident == "secrets-outside-env")
+            | ([.locations[].concrete.feature | scan("secrets\\.([A-Za-z0-9_]+)")[0]] | unique | join(", ")) as $names
+            | .locations[0] as $l
+            | "::error file=\($l.symbolic.key.Local.verbatim_path),line=\($l.concrete.location.start_point.row + 1)::\($names) used outside an environment (github-actions-policy.md, Deploy secrets)"' "$RUNNER_TEMP/auditor.json" | sort -u)
+          [ -n "$errors" ] || exit 0
+          echo "$errors"
           exit 1
 
   images:
