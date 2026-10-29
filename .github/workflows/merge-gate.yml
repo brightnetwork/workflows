@@ -1,0 +1,43 @@
+name: "merge-gate"
+
+on:
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  merge-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: "Check enqueuer is allowed to merge"
+        if: ${{ github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          ALLOWED_USERS: ${{ vars.MERGE_QUEUE_ALLOWED_USERS }}
+        run: |
+          pr=$(sed -nE 's|.*/pr-([0-9]+)-[0-9a-f]+$|\1|p' <<<"$HEAD_REF")
+          [ -n "$pr" ] || { echo "::error::No PR number in $HEAD_REF"; exit 1; }
+
+          enqueuer=$(gh api graphql \
+            -F owner="${GITHUB_REPOSITORY_OWNER}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$pr" \
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  timelineItems(itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT], last: 1) {
+                    nodes { ... on AddedToMergeQueueEvent { enqueuer { login } } }
+                  }
+                }
+              }
+            }' --jq '.data.repository.pullRequest.timelineItems.nodes[0].enqueuer.login // empty')
+          [ -n "$enqueuer" ] || { echo "::error::No enqueuer found for #$pr"; exit 1; }
+
+          if jq -e --arg u "$enqueuer" 'any(.[]; ascii_downcase == ($u | ascii_downcase))' <<<"${ALLOWED_USERS:-[]}" >/dev/null; then
+            echo "#$pr enqueued by $enqueuer: allowed"
+          else
+            echo "::error::#$pr enqueued by $enqueuer, who is not allowed to merge (MERGE_QUEUE_ALLOWED_USERS)"
+            exit 1
+          fi
