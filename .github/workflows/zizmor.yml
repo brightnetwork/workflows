@@ -22,6 +22,12 @@ jobs:
               policies:
                 "brightnetwork/*": ref-pin
                 "*": hash-pin
+          # Online audits that query each action's repo fail with GITHUB_TOKEN
+          # on private org actions (e.g. brightnetwork/bright-ci).
+          ref-confusion:
+            disable: true
+          known-vulnerable-actions:
+            disable: true
           dependabot-cooldown:
             config:
               days: 7
